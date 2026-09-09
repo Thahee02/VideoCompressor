@@ -63,10 +63,10 @@ CORS_ALLOWED_ORIGINS = config(
     default='http://localhost:5173,http://127.0.0.1:5173',
     cast=Csv(),
 )
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # allow all in dev, restrict in prod
+CORS_ALLOW_ALL_ORIGINS = True  # allow all origins; ALLOWED_HOSTS already restricts access
 
-# Max upload size (from .env, default 2 GB)
-_max_upload = config('MAX_UPLOAD_SIZE', default=2 * 1024 * 1024 * 1024, cast=int)
+# Max upload size (from .env, default 500 MB — safe for free-tier 512 MB RAM)
+_max_upload = config('MAX_UPLOAD_SIZE', default=500 * 1024 * 1024, cast=int)
 DATA_UPLOAD_MAX_MEMORY_SIZE = _max_upload
 FILE_UPLOAD_MAX_MEMORY_SIZE = _max_upload
 
