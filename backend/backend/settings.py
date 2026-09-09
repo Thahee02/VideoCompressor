@@ -1,16 +1,18 @@
 """
 Django settings for backend project — Video Compressor (in-memory, no DB).
+Secrets are loaded from backend/.env via python-decouple.
 """
 
 from pathlib import Path
+from decouple import config, Csv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-videocompressor-dev-key-change-in-production'
+SECRET_KEY = config('SECRET_KEY', default='django-insecure-videocompressor-dev-key-change-in-production')
 
-DEBUG = True
+DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
 INSTALLED_APPS = [
     'django.contrib.staticfiles',
@@ -55,16 +57,18 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-# CORS — allow Vite dev server
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS — allow Vite dev server (configure via .env)
+CORS_ALLOWED_ORIGINS = config(
+    'CORS_ALLOWED_ORIGINS',
+    default='http://localhost:5173,http://127.0.0.1:5173',
+    cast=Csv(),
+)
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # allow all in dev, restrict in prod
 
-# Max upload size: 2 GB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024 * 1024
-FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024 * 1024
+# Max upload size (from .env, default 2 GB)
+_max_upload = config('MAX_UPLOAD_SIZE', default=2 * 1024 * 1024 * 1024, cast=int)
+DATA_UPLOAD_MAX_MEMORY_SIZE = _max_upload
+FILE_UPLOAD_MAX_MEMORY_SIZE = _max_upload
 
 # DRF settings — no auth needed (in-memory only app)
 REST_FRAMEWORK = {

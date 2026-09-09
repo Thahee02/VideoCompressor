@@ -1,0 +1,122 @@
+# ═══════════════════════════════════════════════════════════
+#  VideoCompressor — .gitignore
+#  Covers: Django backend + React/Vite frontend
+# ═══════════════════════════════════════════════════════════
+
+
+# ─── Environment & Secrets ────────────────────────────────
+.env
+.env.local
+.env.*.local
+!.env.example          # keep example files in git
+
+
+# ─── Python / Django ──────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+/backend/media/
+/backend/staticfiles/
+/backend/static/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+
+# ─── Node / Vite / React ──────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Vite cache
+.vite/
+frontend/.vite/
+
+# Build output
+frontend/dist/
+frontend/build/
+
+# Package lock files (choose one convention)
+# Uncomment below if you prefer to NOT track lock files:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+
+# ─── OS & Editor ──────────────────────────────────────────
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encdata
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# VSCode
+.vscode/
+!.vscode/extensions.json
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim / Emacs
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+
+# ─── Temp & Misc ──────────────────────────────────────────
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.patch
+
+# FFmpeg temp files (just in case)
+*.ts
+ffmpeg_*.mp4
