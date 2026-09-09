@@ -3,9 +3,8 @@ services:
   - type: web
     name: videopress-backend
     runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --log-level info
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python -m gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --log-level info
     plan: free
     envVars:
       - key: SECRET_KEY
