@@ -10,17 +10,16 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
 
 from . import job_store
 
 # Preset configurations
-# NOTE: faster presets (fast/medium) start encoding immediately → progress works from 0%
-#       slow/veryslow do frame-analysis first → progress stuck at 0% for a while
 PRESETS = {
     "balanced": {
         "vcodec": "libx264",
         "crf": "23",
-        "preset": "fast",          # fast: good compression, instant progress
+        "preset": "fast",
         "acodec": "aac",
         "audio_bitrate": "128k",
         "description": "H.264 · CRF 23 · Best balance of size & quality",
@@ -28,7 +27,7 @@ PRESETS = {
     "high_compression": {
         "vcodec": "libx265",
         "crf": "28",
-        "preset": "fast",          # fast: H.265 is already slower by nature
+        "preset": "fast",
         "acodec": "aac",
         "audio_bitrate": "96k",
         "description": "H.265 · CRF 28 · Maximum compression",
@@ -36,7 +35,7 @@ PRESETS = {
     "lossless": {
         "vcodec": "libx264",
         "crf": "18",
-        "preset": "medium",        # medium: near-lossless, reasonable speed
+        "preset": "medium",
         "acodec": "aac",
         "audio_bitrate": "192k",
         "description": "H.264 · CRF 18 · Near-lossless quality",
@@ -56,29 +55,27 @@ def _get_ffmpeg_exe() -> str:
 
 
 def _probe_duration(ffmpeg_exe: str, input_path: str) -> float:
-    """Use ffprobe (bundled alongside ffmpeg) to get video duration in seconds."""
+    """Extract video duration in seconds by probing input file using ffmpeg -i."""
     try:
-        ffprobe = ffmpeg_exe.replace("ffmpeg", "ffprobe")
-        if not os.path.exists(ffprobe):
-            ffprobe = ffmpeg_exe  # fall back to ffmpeg itself
-
-        cmd = [
-            ffprobe, "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            input_path,
-        ]
+        cmd = [ffmpeg_exe, "-i", input_path]
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=10,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
-        val = result.stdout.strip()
-        return float(val) if val else 0.0
+        # Duration is printed to stderr by ffmpeg -i
+        match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", result.stderr)
+        if match:
+            h = float(match.group(1))
+            m = float(match.group(2))
+            s = float(match.group(3))
+            tot = h * 3600 + m * 60 + s
+            return tot
     except Exception:
-        return 0.0
+        pass
+    return 0.0
 
 
 def _compress(job_id: str):
@@ -88,7 +85,7 @@ def _compress(job_id: str):
     process = None
 
     try:
-        job_store.update_job(job_id, status="processing", progress=0)
+        job_store.update_job(job_id, status="processing", progress=1)
 
         job_info = job_store.get_job(job_id)
         if not job_info or job_store.is_cancelled(job_id):
@@ -121,7 +118,7 @@ def _compress(job_id: str):
         if job_store.is_cancelled(job_id):
             return
 
-        # Probe video duration for accurate progress %
+        # Probe video duration for progress %
         duration = _probe_duration(ffmpeg_exe, input_tmp)
 
         # Prepare output temp file
@@ -129,12 +126,9 @@ def _compress(job_id: str):
             output_tmp = f.name
 
         # Build FFmpeg command
-        # -progress pipe:1  → machine-readable progress to stdout
-        # -nostats           → suppress stderr stats (keeps stderr clean for errors)
-        # -loglevel error    → only real errors on stderr
         cmd = [
             ffmpeg_exe,
-            "-y",                          # overwrite output
+            "-y",
             "-i", input_tmp,
             "-vcodec", preset["vcodec"],
             "-crf", preset["crf"],
@@ -142,13 +136,12 @@ def _compress(job_id: str):
             "-acodec", preset["acodec"],
             "-b:a", preset["audio_bitrate"],
             "-movflags", "+faststart",
-            "-progress", "pipe:1",         # progress → stdout
+            "-progress", "pipe:1",
             "-nostats",
-            "-loglevel", "error",          # only errors → stderr
+            "-loglevel", "error",
             output_tmp,
         ]
 
-        # H.265 on some players needs this tag
         if preset["vcodec"] == "libx265":
             cmd.insert(-1, "-tag:v")
             cmd.insert(-1, "hvc1")
@@ -160,11 +153,10 @@ def _compress(job_id: str):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=1,          # line-buffered: flush each line immediately
+            bufsize=1,
             creationflags=creation_flags,
         )
 
-        # Drain stderr in a background thread to prevent pipe deadlock
         stderr_lines = []
         def drain_stderr():
             try:
@@ -176,8 +168,14 @@ def _compress(job_id: str):
         stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
         stderr_thread.start()
 
-        # Parse -progress output line by line
-        time_pattern = re.compile(r"out_time_ms=(\d+)")
+        # RegEx patterns for parsing FFmpeg -progress output
+        re_us = re.compile(r"out_time_us=(\d+)")
+        re_ms = re.compile(r"out_time_ms=(\d+)")
+        re_time = re.compile(r"out_time=(\d+):(\d+):(\d+(?:\.\d+)?)")
+
+        start_time = time.time()
+        last_pct = 1
+
         while True:
             line = process.stdout.readline()
             if not line:
@@ -185,11 +183,49 @@ def _compress(job_id: str):
             if job_store.is_cancelled(job_id):
                 process.kill()
                 return
-            m = time_pattern.search(line)
-            if m and duration > 0:
-                out_time_s = int(m.group(1)) / 1_000_000
-                pct = min(int((out_time_s / duration) * 100), 99)
-                job_store.update_job(job_id, progress=pct)
+
+            current_s = 0.0
+            matched = False
+
+            # Check out_time_us (microseconds)
+            m_us = re_us.search(line)
+            if m_us:
+                val = int(m_us.group(1))
+                if val > 0:
+                    current_s = val / 1_000_000
+                    matched = True
+
+            # Check out_time_ms (can be microseconds or milliseconds)
+            if not matched:
+                m_ms = re_ms.search(line)
+                if m_ms:
+                    val = int(m_ms.group(1))
+                    if val > 0:
+                        current_s = val / 1_000_000 if val > 10000 else val / 1000
+                        matched = True
+
+            # Check out_time=HH:MM:SS.ss
+            if not matched:
+                m_t = re_time.search(line)
+                if m_t:
+                    h = float(m_t.group(1))
+                    m = float(m_t.group(2))
+                    s = float(m_t.group(3))
+                    current_s = h * 3600 + m * 60 + s
+                    matched = True
+
+            if duration > 0 and current_s > 0:
+                pct = min(int((current_s / duration) * 100), 99)
+                if pct > last_pct:
+                    last_pct = pct
+                    job_store.update_job(job_id, progress=pct)
+            elif duration == 0:
+                # Fallback estimation if duration couldn't be probed
+                elapsed = time.time() - start_time
+                est_pct = min(int(elapsed * 10), 95)
+                if est_pct > last_pct:
+                    last_pct = est_pct
+                    job_store.update_job(job_id, progress=est_pct)
 
         process.wait()
         stderr_thread.join(timeout=3)
