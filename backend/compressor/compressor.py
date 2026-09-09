@@ -12,6 +12,9 @@ import tempfile
 import threading
 import time
 
+# CREATE_NO_WINDOW is Windows-only; use 0 on Linux/macOS
+_CREATE_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
 from . import job_store
 
 # Preset configurations
@@ -63,7 +66,7 @@ def _probe_duration(ffmpeg_exe: str, input_path: str) -> float:
             capture_output=True,
             text=True,
             timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=_CREATE_NO_WINDOW,
         )
         # Duration is printed to stderr by ffmpeg -i
         match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", result.stderr)
@@ -146,7 +149,7 @@ def _compress(job_id: str):
             cmd.insert(-1, "-tag:v")
             cmd.insert(-1, "hvc1")
 
-        creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        creation_flags = _CREATE_NO_WINDOW
 
         process = subprocess.Popen(
             cmd,
